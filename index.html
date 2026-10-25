@@ -12,8 +12,8 @@
 <meta name="apple-mobile-web-app-title" content="Turno">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -66,6 +66,13 @@ button{cursor:pointer}
 .brand{font:700 22px/1 var(--f-display);letter-spacing:-.01em}
 .brand b{color:var(--accent)}
 .today{color:var(--muted);font-size:14px}
+.marca{display:flex;align-items:center;gap:10px}
+.nube{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);background:none;border:0;padding:4px 0}
+.nube i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.nube[data-s="ok"] i{background:var(--accent)}
+.nube[data-s="pendiente"] i,.nube[data-s="conectando"] i{background:var(--live)}
+.nube[data-s="error"] i{background:var(--danger)}
+.nube[data-s="conectando"] i{animation:pulse 1.2s ease-in-out infinite}
 .view{display:grid;gap:14px}
 h2{font:700 20px/1.2 var(--f-display);margin:0;text-wrap:balance}
 .label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
@@ -194,7 +201,7 @@ nav.tabs button[aria-current="page"]{color:var(--accent)}
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand">Turno<b>.</b></div>
+    <div class="marca"><div class="brand">Turno<b>.</b></div><button class="nube" id="nube" type="button" data-s="off" hidden><i></i><span id="nube-t"></span></button></div>
     <div class="today" id="hoy"></div>
   </header>
 
@@ -258,6 +265,14 @@ nav.tabs button[aria-current="page"]{color:var(--accent)}
       <p>Se usa para la barra de progreso semanal.</p>
     </div>
     <div class="card ajuste">
+      <strong>Horario habitual</strong>
+      <div class="fila">
+        <div class="campo"><label for="a-entrada">Entrada</label><input class="input mono" id="a-entrada" type="time"></div>
+        <div class="campo"><label for="a-salida">Salida</label><input class="input mono" id="a-salida" type="time"></div>
+      </div>
+      <p>Las horas que aparecen ya puestas al añadir un turno a mano.</p>
+    </div>
+    <div class="card ajuste">
       <div class="switch">
         <div><strong>Notificación «Trabajando»</strong><br><span class="pill" id="a-permiso">—</span></div>
         <button class="btn small accent" id="a-b-permiso" type="button">Activar</button>
@@ -266,8 +281,16 @@ nav.tabs button[aria-current="page"]{color:var(--accent)}
       <p id="a-notif-info"></p>
     </div>
     <div class="card ajuste">
-      <strong>Tus datos</strong>
-      <p>Los turnos se guardan solo en este móvil. Descarga una copia de vez en cuando por si cambias de teléfono o borras el navegador.</p>
+      <div class="switch">
+        <div><strong>Sincronización</strong><br><span class="pill" id="a-sync">—</span></div>
+        <button class="btn small" id="a-b-sync" type="button">Sincronizar ahora</button>
+      </div>
+      <p id="a-sync-info">Tus turnos se guardan en este dispositivo y en tu nube de Firebase (el mismo proyecto que GastosApp). Se sincronizan solos entre el móvil y el ordenador; si estás sin conexión, se envían al recuperarla.</p>
+      <p class="error" id="a-sync-err" hidden></p>
+    </div>
+    <div class="card ajuste">
+      <strong>Copia de seguridad</strong>
+      <p>Un archivo con todos tus turnos, por si algún día lo necesitas.</p>
       <div class="botones">
         <button class="btn small" id="a-csv" type="button">Exportar a Excel (CSV)</button>
         <button class="btn small" id="a-json" type="button">Descargar copia</button>
@@ -302,16 +325,142 @@ const pad = n => String(n).padStart(2, '0');
 const mayus = t => t.charAt(0).toUpperCase() + t.slice(1);
 
 /* ---------- Datos ---------- */
-function vacio(){ return { registros: [], actual: null, ajustes: { objetivo: 48, fija: true } }; }
+function vacio(){ return { registros: [], borrados: {}, actual: null, actualMod: 0, ajustes: { objetivo: 48, fija: true, entrada: '16:00', salida: '23:30' }, ajustesMod: 0 }; }
 function cargar(){
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) { const d = JSON.parse(raw); const b = vacio(); return { registros: Array.isArray(d.registros) ? d.registros : [], actual: d.actual || null, ajustes: Object.assign(b.ajustes, d.ajustes || {}) }; }
+    if (raw) return normalizar(JSON.parse(raw));
   } catch (e) {}
   return vacio();
 }
+function normalizar(d){
+  const b = vacio();
+  return {
+    registros: Array.isArray(d && d.registros) ? d.registros.filter(r => r && r.id && typeof r.inicio === 'number' && typeof r.fin === 'number') : [],
+    borrados: (d && d.borrados && typeof d.borrados === 'object') ? Object.assign({}, d.borrados) : {},
+    actual: (d && d.actual) || null, actualMod: (d && d.actualMod) || 0,
+    ajustes: Object.assign(b.ajustes, (d && d.ajustes) || {}), ajustesMod: (d && d.ajustesMod) || 0
+  };
+}
 let S = cargar();
-function guardar(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+/* Cada cambio se marca con su hora (mod) comparando con el estado anterior.
+   Así la sincronización sabe qué versión de cada turno es la más reciente. */
+function instantanea(s){
+  const regs = {};
+  for (const r of s.registros) { const { mod, ...resto } = r; regs[r.id] = JSON.stringify(resto); }
+  return { regs, actual: JSON.stringify(s.actual || null), ajustes: JSON.stringify(s.ajustes) };
+}
+let previo = instantanea(S);
+function reemplazar(nuevo){ S = nuevo; previo = instantanea(S); }
+function sellar(){
+  const ahora = Date.now(), n = instantanea(S);
+  for (const r of S.registros) if (previo.regs[r.id] !== n.regs[r.id]) r.mod = ahora;
+  for (const id in previo.regs) if (!(id in n.regs)) S.borrados[id] = ahora;
+  if (n.actual !== previo.actual) S.actualMod = ahora;
+  if (n.ajustes !== previo.ajustes) S.ajustesMod = ahora;
+  previo = n;
+}
+function guardarLocal(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function guardar(){ sellar(); guardarLocal(); programarEmpuje(); }
+
+/* Une dos versiones sin perder turnos: gana la edición más reciente de cada turno */
+const DIAS_BORRADOS = 180;
+function fusionar(a, b){
+  a = normalizar(a); b = normalizar(b);
+  const borr = Object.assign({}, a.borrados);
+  for (const [k, t] of Object.entries(b.borrados)) if (!(borr[k] >= t)) borr[k] = t;
+  const corte = Date.now() - DIAS_BORRADOS * DIA;
+  for (const k of Object.keys(borr)) if (borr[k] < corte) delete borr[k];
+  const mapa = new Map();
+  for (const r of [...a.registros, ...b.registros]) { const x = mapa.get(r.id); if (!x || (r.mod || 0) > (x.mod || 0)) mapa.set(r.id, r); }
+  const registros = [...mapa.values()].filter(r => !(borr[r.id] >= (r.mod || 0))).map(r => Object.assign({}, r))
+    .sort((x, y) => x.inicio - y.inicio || (x.id < y.id ? -1 : 1));
+  const bActual = b.actualMod > a.actualMod, bAjustes = b.ajustesMod > a.ajustesMod;
+  return {
+    registros, borrados: borr,
+    actual: bActual ? b.actual : a.actual, actualMod: Math.max(a.actualMod, b.actualMod),
+    ajustes: bAjustes ? b.ajustes : a.ajustes, ajustesMod: Math.max(a.ajustesMod, b.ajustesMod)
+  };
+}
+function huella(s){ const n = normalizar(s); n.registros = n.registros.slice().sort((x, y) => (x.id < y.id ? -1 : 1)); return JSON.stringify(n); }
+
+/* ---------- Sincronización con Firebase (mismo proyecto que GastosApp, documento propio) ---------- */
+const FIREBASE = {
+  config: {
+    apiKey: "AIzaSyBtD_cF2f4v4cbnQjceFu7rOr32tHnqx-o",
+    authDomain: "gastosapp-85a93.firebaseapp.com",
+    projectId: "gastosapp-85a93",
+    storageBucket: "gastosapp-85a93.firebasestorage.app",
+    messagingSenderId: "872562118221",
+    appId: "1:872562118221:web:bd2918575cf5c66a46d604"
+  },
+  sdk: "https://www.gstatic.com/firebasejs/10.12.0/",
+  doc: ["usuarios", "turno-larry"]
+};
+let fb = null, empujeT = null, empujando = false, otraVez = false;
+const sync = { estado: PREVIEW ? 'off' : 'conectando', ultimo: 0, error: '' };
+function setSync(estado, err){
+  sync.estado = estado;
+  if (estado === 'ok') { sync.ultimo = Date.now(); sync.error = ''; }
+  if (err) sync.error = (err.code === 'permission-denied')
+    ? 'Firebase ha rechazado el acceso. Hay que revisar las reglas de Firestore.'
+    : 'No se pudo sincronizar' + (err.code ? ' (' + err.code + ')' : '') + '.';
+  pintarNube();
+  if (tab === 'ajustes') pintarAjustes();
+}
+async function iniciarSync(){
+  if (PREVIEW) return;
+  setSync('conectando');
+  try {
+    const [appMod, fs] = await Promise.all([import(FIREBASE.sdk + 'firebase-app.js'), import(FIREBASE.sdk + 'firebase-firestore.js')]);
+    const app = appMod.initializeApp(FIREBASE.config, 'turno');
+    const db = fs.getFirestore(app);
+    fb = { fs, db, ref: fs.doc(db, ...FIREBASE.doc) };
+    fs.onSnapshot(fb.ref, snap => recibir(snap.exists() ? snap.data() : null), err => setSync('error', err));
+  } catch (e) {
+    setSync(navigator.onLine === false ? 'pendiente' : 'error', e);
+  }
+}
+function aplicar(m){
+  if (huella(m) === huella(S)) return false;
+  reemplazar(m); guardarLocal(); avisarSW(); pintar();
+  return true;
+}
+function recibir(remoto){
+  const m = remoto ? fusionar(S, remoto) : S;
+  aplicar(m);
+  if (!remoto || huella(m) !== huella(remoto)) empujar();
+  else if (!empujando) setSync('ok');
+}
+function programarEmpuje(){
+  if (PREVIEW) return;
+  clearTimeout(empujeT);
+  if (sync.estado === 'ok') setSync('pendiente');
+  empujeT = setTimeout(empujar, 600);
+}
+async function empujar(){
+  clearTimeout(empujeT);
+  if (!fb) { if (!PREVIEW && sync.estado !== 'conectando') iniciarSync(); return; }
+  if (empujando) { otraVez = true; return; }
+  empujando = true; otraVez = false;
+  try {
+    const enviado = await fb.fs.runTransaction(fb.db, async tx => {
+      const snap = await tx.get(fb.ref);
+      const m = snap.exists() ? fusionar(S, snap.data()) : fusionar(S, vacio());
+      tx.set(fb.ref, Object.assign({ app: 'Turno', version: 1, actualizado: Date.now() }, m));
+      return m;
+    });
+    aplicar(fusionar(S, enviado));
+    setSync('ok');
+  } catch (e) {
+    setSync(navigator.onLine === false || (e && e.code === 'unavailable') ? 'pendiente' : 'error', e);
+  } finally {
+    empujando = false;
+    if (otraVez) empujar();
+  }
+}
+window.addEventListener('online', () => empujar());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ---------- Tiempo ---------- */
@@ -511,9 +660,16 @@ function pintarHist(){
   }
   $('#lista').innerHTML = html;
 }
+function pintarNube(){
+  const b = $('#nube'); if (!b) return;
+  b.hidden = PREVIEW;
+  b.dataset.s = sync.estado;
+  $('#nube-t').textContent = { ok: 'Sincronizado', pendiente: 'Pendiente', conectando: 'Conectando', error: 'Sin sincronizar', off: '' }[sync.estado] || '';
+}
 function pintarAjustes(){
   const o = $('#a-objetivo'); if (document.activeElement !== o) o.value = S.ajustes.objetivo;
   $('#a-fija').checked = S.ajustes.fija !== false;
+  for (const k of ['entrada', 'salida']) { const el = $('#a-' + k); if (document.activeElement !== el) el.value = S.ajustes[k] || ''; }
   const pill = $('#a-permiso'), b = $('#a-b-permiso');
   let txt, cls;
   if (PREVIEW) { txt = 'No disponible en la vista previa'; cls = 'no'; }
@@ -523,6 +679,11 @@ function pintarAjustes(){
   else { txt = 'Sin activar'; cls = ''; }
   pill.textContent = txt; pill.className = 'pill ' + cls;
   b.hidden = PREVIEW || !notifSoportada() || Notification.permission !== 'default';
+  const ps = $('#a-sync'), etiquetas = { ok: ['Sincronizado', 'ok'], pendiente: ['Pendiente de enviar', ''], conectando: ['Conectando…', ''], error: ['Error', 'no'], off: ['No disponible en la vista previa', 'no'] };
+  const [et, cl] = etiquetas[sync.estado] || ['—', ''];
+  ps.textContent = et + (sync.estado === 'ok' && sync.ultimo ? ' · ' + hm(sync.ultimo) : ''); ps.className = 'pill ' + cl;
+  $('#a-b-sync').hidden = PREVIEW;
+  $('#a-sync-err').hidden = !(sync.estado === 'error' && sync.error); $('#a-sync-err').textContent = sync.error;
   $('#a-notif-info').textContent = 'Mientras estés en turno verás «Trabajando» en la barra de notificaciones, con un botón para finalizar. Si la deslizas para quitarla, vuelve a aparecer al momento (en Android). En iPhone, con la app añadida a la pantalla de inicio, verás además un globo rojo en el icono hasta que finalices el turno.';
 }
 
@@ -617,8 +778,10 @@ function abrirEditar(id){
   const base = r || (() => {
     const ult = S.registros.slice().sort((x, y) => y.inicio - x.inicio)[0];
     const hoy = inicioDia(Date.now());
-    if (ult) { const di = ult.inicio - inicioDia(ult.inicio); return { inicio: hoy + di, fin: hoy + di + (ult.fin - ult.inicio), pausaMin: ult.pausaMin || 0 }; }
-    return { inicio: hoy + 12 * HORA, fin: hoy + 20 * HORA, pausaMin: 30 };
+    const f = fechaInput(hoy), aj = S.ajustes;
+    const ini = deInputs(f, aj.entrada || '16:00');
+    let fin = deInputs(f, aj.salida || '23:30'); if (fin <= ini) fin += DIA;
+    return { inicio: ini, fin, pausaMin: ult ? (ult.pausaMin || 0) : 0 };
   })();
   abrirHoja(`
     <h2>${r ? 'Editar turno' : 'Añadir turno'}</h2>
@@ -692,7 +855,7 @@ function exportarCSV(){
   descargar('turnos-' + fechaInput(Date.now()) + '.csv', csv, 'text/csv;charset=utf-8');
 }
 function exportarJSON(){
-  descargar('turno-copia-' + fechaInput(Date.now()) + '.json', JSON.stringify({ app: 'Turno', version: 1, exportado: new Date().toISOString(), ...S }, null, 2), 'application/json');
+  descargar('turno-copia-' + fechaInput(Date.now()) + '.json', JSON.stringify({ app: 'Turno', version: 1, exportado: new Date().toISOString(), registros: S.registros, actual: S.actual, ajustes: S.ajustes }, null, 2), 'application/json');
 }
 function importar(file){
   const fr = new FileReader();
@@ -703,6 +866,7 @@ function importar(file){
     confirmar('Restaurar copia', `Se sustituirán tus ${S.registros.length} turnos por los ${d.registros.length} de la copia.`, 'Restaurar', () => {
       S.registros = d.registros.map(r => ({ id: r.id || uid(), inicio: r.inicio, fin: r.fin, pausaMin: r.pausaMin || 0, ...(r.nota ? { nota: String(r.nota) } : {}) }));
       if (d.ajustes) S.ajustes = Object.assign(vacio().ajustes, d.ajustes);
+      if (d.actual !== undefined && !S.actual) S.actual = d.actual || null;
       guardar(); pintar(); toast('Copia restaurada');
     });
   };
@@ -742,15 +906,18 @@ $('#b-nuevo').onclick = () => abrirEditar(null);
 $('#lista').addEventListener('click', e => { const b = e.target.closest('.reg'); if (b) abrirEditar(b.dataset.id); });
 $('#b-quitar-demo').onclick = () => { S.registros = S.registros.filter(r => !r.demo); guardar(); pintar(); toast('Ejemplos quitados'); };
 $('#a-objetivo').addEventListener('change', e => { const n = parseFloat(String(e.target.value).replace(',', '.')); if (n > 0 && n <= 80) { S.ajustes.objetivo = n; guardar(); toast('Guardado'); } else pintarAjustes(); });
+for (const k of ['entrada', 'salida']) $('#a-' + k).addEventListener('change', e => { if (/^\d{2}:\d{2}$/.test(e.target.value)) { S.ajustes[k] = e.target.value; guardar(); toast('Guardado'); } else pintarAjustes(); });
 $('#a-fija').addEventListener('change', e => { S.ajustes.fija = e.target.checked; guardar(); avisarSW(); });
 $('#a-csv').onclick = exportarCSV;
+$('#a-b-sync').onclick = () => { if (!fb) iniciarSync(); else empujar(); };
+$('#nube').onclick = () => mostrarTab('ajustes');
 $('#a-json').onclick = exportarJSON;
 $('#a-imp').onclick = () => $('#a-file').click();
 $('#a-file').addEventListener('change', e => { const f = e.target.files[0]; if (f) importar(f); e.target.value = ''; });
-$('#a-borrar').onclick = () => confirmar('Borrar todos los turnos', `Se eliminarán ${S.registros.length} turnos de este móvil. Descarga una copia antes si la quieres conservar.`, 'Borrar todo', () => { S.registros = []; guardar(); pintar(); toast('Turnos borrados'); });
+$('#a-borrar').onclick = () => confirmar('Borrar todos los turnos', `Se eliminarán ${S.registros.length} turnos en todos tus dispositivos. Descarga una copia antes si la quieres conservar.`, 'Borrar todo', () => { S.registros = []; guardar(); pintar(); toast('Turnos borrados'); });
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { S = cargar(); pintar(); avisarSW('asegurar'); } });
-window.addEventListener('storage', e => { if (e.key === KEY) { S = cargar(); pintar(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { reemplazar(cargar()); pintar(); avisarSW('asegurar'); if (sync.estado !== 'ok') empujar(); } });
+window.addEventListener('storage', e => { if (e.key === KEY) { reemplazar(cargar()); pintar(); } });
 
 let n = 0;
 setInterval(() => { if (document.hidden) return; if (tab === 'fichar') tic(); if (++n % 30 === 0) pintar(); }, 1000);
@@ -758,7 +925,9 @@ setInterval(() => { if (document.hidden) return; if (tab === 'fichar') tic(); if
 /* ---------- Arranque ---------- */
 if (PREVIEW && !S.registros.length && !S.actual) cargarEjemplos();
 pintar();
+pintarNube();
 iniciarSW();
+iniciarSync();
 try {
   const q = new URLSearchParams(location.search);
   if (q.get('accion')) { const acc = q.get('accion'); history.replaceState(null, '', location.pathname); ejecutarAccion(acc); }

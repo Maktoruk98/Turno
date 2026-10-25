@@ -2,20 +2,22 @@
    - Guarda la app para que abra sin conexión.
    - Muestra la notificación «Trabajando» mientras hay un turno abierto
      y la vuelve a mostrar si se desliza para quitarla. */
-const VERSION = 'turno-v2';
+const VERSION = 'turno-v4';
+const SDK = 'turno-sdk';
 const FUENTES = 'turno-fuentes';
 const ESTADO = 'turno-estado';
 const CLAVE = './__estado';
-const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/badge-96.png'];
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './badge-96.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // Cada archivo por separado: si falta uno, la app se instala igual.
+  e.waitUntil(caches.open(VERSION).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => ![VERSION, FUENTES, ESTADO].includes(k)).map(k => caches.delete(k)));
+    await Promise.all(keys.filter(k => ![VERSION, FUENTES, ESTADO, SDK].includes(k)).map(k => caches.delete(k)));
     await self.clients.claim();
     await enCola(asegurar);
   })());
@@ -35,6 +37,15 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.match(req).then(hit => {
       const red = fetch(req).then(r => { if (r.ok) { const c = r.clone(); caches.open(VERSION).then(k => k.put(req, c)); } return r; }).catch(() => hit);
       return hit || red;
+    }));
+    return;
+  }
+  // El código de Firebase (versión fija) se guarda para que la app abra sin conexión
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    e.respondWith(caches.open(SDK).then(async c => {
+      const hit = await c.match(req);
+      if (hit) return hit;
+      const r = await fetch(req); if (r.ok) c.put(req, r.clone()); return r;
     }));
     return;
   }
@@ -77,8 +88,8 @@ async function mostrar(est) {
   await self.registration.showNotification(pausa ? 'En pausa' : 'Trabajando', {
     tag: 'turno',
     body: pausa ? `En pausa desde las ${hm(est.pausaDesde)} · entrada ${hm(est.inicio)}` : `Entrada a las ${hm(est.inicio)}. Toca para abrir.`,
-    icon: 'icons/icon-192.png',
-    badge: 'icons/badge-96.png',
+    icon: 'icon-192.png',
+    badge: 'badge-96.png',
     requireInteraction: true,
     silent: true,
     renotify: false,

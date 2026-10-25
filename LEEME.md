@@ -4,7 +4,7 @@
 
 1. En GitHub crea un repositorio nuevo llamado `Turno` (público).
 2. Pulsa **Add file → Upload files** y arrastra todo el contenido de esta carpeta
-   (`index.html`, `sw.js`, `manifest.webmanifest` y la carpeta `icons`).
+   (todos los archivos, sueltos).
 3. En el repositorio: **Settings → Pages → Branch: main / (root) → Save**.
 4. Al cabo de un minuto estará en `https://maktoruk98.github.io/Turno/`.
 5. Ábrela en el móvil con Chrome → menú ⋮ → **Instalar aplicación** (o «Añadir a pantalla de inicio»).
@@ -30,6 +30,13 @@
 2. Botón Compartir → «Añadir a pantalla de inicio» → Añadir.
 3. Abre siempre la app desde el icono (no desde Safari) y acepta las notificaciones la primera vez que fiches: sin ese permiso no aparece el globo.
 
-## Tus datos
+## Tus datos y la sincronización
 
-Se guardan solo en ese móvil, dentro del navegador. Descarga una copia desde Ajustes de vez en cuando.
+- Los turnos se guardan en cada dispositivo y en Firebase (el mismo proyecto que GastosApp, documento `usuarios/turno-larry`).
+- Se sincronizan solos entre el móvil y el ordenador. Si dos dispositivos tenían turnos distintos, se juntan; no se pierde ninguno.
+- Junto al nombre de la app verás el estado: verde «Sincronizado», naranja «Pendiente» (se enviará al recuperar la conexión), rojo si algo falla (el detalle sale en Ajustes).
+- Puedes seguir descargando una copia desde Ajustes si quieres un archivo de respaldo.
+
+## Actualizar la app en GitHub
+
+En el repositorio Turno: Add file → Upload files → arrastra los archivos que hayan cambiado (sustituyen a los anteriores) → Commit changes. Al abrir la app en cada dispositivo ya carga la versión nueva; si no, ciérrala del todo y vuelve a abrirla.
